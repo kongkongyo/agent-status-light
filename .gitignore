@@ -1,0 +1,8 @@
+.claude/
+dist/
+tests/
+*.zip
+*.tmp
+*.TMP
+*.log
+AGENT_GUIDELINES.md
