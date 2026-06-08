@@ -144,6 +144,10 @@ namespace WorkStatusLight
 
             if (state == "confirm")
             {
+                if (windowsNativeEnabled && windowsNativeNotifyConfirm)
+                {
+                    WindowsNativeNotifier.SendAsync("confirm", title, body, false, this);
+                }
                 if (barkEnabled && !String.IsNullOrWhiteSpace(barkDeviceKey) && barkNotifyConfirm)
                 {
                     SendBarkNotification("confirm", title, body, false);
@@ -159,6 +163,10 @@ namespace WorkStatusLight
             }
             else if (state == "done")
             {
+                if (windowsNativeEnabled && windowsNativeNotifyDone)
+                {
+                    WindowsNativeNotifier.SendAsync("done", title, body, false, this);
+                }
                 if (barkEnabled && !String.IsNullOrWhiteSpace(barkDeviceKey) && barkNotifyDone)
                 {
                     SendBarkNotification("done", title, body, false);
@@ -360,6 +368,7 @@ namespace WorkStatusLight
             currentWorkingCount = Math.Max(0, workingCount);
             currentConfirmCount = Math.Max(0, confirmCount);
             currentDoneCount = Math.Max(0, doneCount);
+            UpdateBreathingTimer();
         }
 
 
@@ -367,9 +376,68 @@ namespace WorkStatusLight
         {
             doneFlashTicksRemaining = 10;
             doneFlashVisible = true;
+            if (flashTimer == null)
+            {
+                return;
+            }
+
             flashTimer.Stop();
             flashTimer.Start();
+            UpdateBreathingTimer();
             RenderLayeredWindow();
+        }
+
+
+        private void UpdateBreathingTimer()
+        {
+            if (breathingTimer == null)
+            {
+                return;
+            }
+
+            if (HasBreathingLight())
+            {
+                if (!breathingTimer.Enabled)
+                {
+                    breathingTimer.Start();
+                }
+                return;
+            }
+
+            breathingTick = 0;
+            breathingTimer.Stop();
+        }
+
+
+        private bool HasBreathingLight()
+        {
+            if (!breathingLightEnabled)
+            {
+                return false;
+            }
+
+            return currentConfirmCount > 0 ||
+                currentWorkingCount > 0 ||
+                (currentDoneCount > 0 && doneFlashVisible && !IsDoneFlashRunning());
+        }
+
+
+        private bool IsDoneFlashRunning()
+        {
+            return flashTimer != null && flashTimer.Enabled;
+        }
+
+
+        private float GetBreathingIntensity()
+        {
+            if (!HasBreathingLight())
+            {
+                return 1f;
+            }
+
+            double phase = (Math.PI * 2.0 * breathingTick) / BreathingCycleTicks;
+            double ratio = (Math.Sin(phase - (Math.PI / 2.0)) + 1.0) / 2.0;
+            return (float)(BreathingMinimumIntensity + ((1.0 - BreathingMinimumIntensity) * ratio));
         }
     }
 }

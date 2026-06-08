@@ -5,6 +5,10 @@ namespace WorkStatusLight
     {
         public string skin { get; set; }
         public string lightOrientation { get; set; }
+        public bool? breathingLightEnabled { get; set; }
+        public bool windowsNativeEnabled { get; set; }
+        public bool windowsNativeNotifyConfirm { get; set; }
+        public bool? windowsNativeNotifyDone { get; set; }
         public bool barkEnabled { get; set; }
         public string barkServerUrl { get; set; }
         public string barkDeviceKey { get; set; }

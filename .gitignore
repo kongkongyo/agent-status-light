@@ -5,4 +5,5 @@ tests/
 *.tmp
 *.TMP
 *.log
+src/Properties/AssemblyVersion.Generated.cs
 AGENT_GUIDELINES.md

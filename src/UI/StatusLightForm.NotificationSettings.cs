@@ -10,10 +10,17 @@ namespace WorkStatusLight
         {
             using (var dialog = new Form())
             using (var tabs = new TabControl())
+            using (var windowsNativePage = new TabPage(T.WindowsNativeNotificationTab))
             using (var barkPage = new TabPage("Bark"))
             using (var pushPlusPage = new TabPage("PushPlus"))
             using (var telegramPage = new TabPage("Telegram"))
             using (var templatePage = new TabPage(T.NotificationTemplateTab))
+            using (var windowsNativeEnabledBox = new CheckBox())
+            using (var windowsNativeNotifyGroup = new GroupBox())
+            using (var windowsNativeConfirmBox = new CheckBox())
+            using (var windowsNativeDoneBox = new CheckBox())
+            using (var windowsNativeTestButton = new Button())
+            using (var windowsNativeHintLabel = new Label())
             using (var barkEnabledBox = new CheckBox())
             using (var barkServerLabel = new Label())
             using (var barkKeyLabel = new Label())
@@ -61,10 +68,37 @@ namespace WorkStatusLight
 
                 tabs.Location = new Point(12, 12);
                 tabs.Size = new Size(468, 342);
+                windowsNativePage.Text = T.WindowsNativeNotificationTab;
                 barkPage.Text = "Bark";
                 pushPlusPage.Text = "PushPlus";
                 telegramPage.Text = "Telegram";
                 templatePage.Text = T.NotificationTemplateTab;
+
+                windowsNativeEnabledBox.Text = T.WindowsNativeEnabled;
+                windowsNativeEnabledBox.Checked = windowsNativeEnabled;
+                windowsNativeEnabledBox.Location = new Point(16, 16);
+                windowsNativeEnabledBox.Size = new Size(180, 24);
+
+                windowsNativeNotifyGroup.Text = T.BarkNotifyStates;
+                windowsNativeNotifyGroup.Location = new Point(16, 54);
+                windowsNativeNotifyGroup.Size = new Size(426, 66);
+
+                windowsNativeConfirmBox.Text = T.RedConfirm;
+                windowsNativeConfirmBox.Checked = windowsNativeNotifyConfirm;
+                ConfigureNotifyStateCheckBox(windowsNativeConfirmBox, 16);
+
+                windowsNativeDoneBox.Text = T.GreenDone;
+                windowsNativeDoneBox.Checked = windowsNativeNotifyDone;
+                ConfigureNotifyStateCheckBox(windowsNativeDoneBox, 172);
+
+                windowsNativeTestButton.Text = T.WindowsNativeTest;
+                windowsNativeTestButton.Location = new Point(16, 148);
+                windowsNativeTestButton.Size = new Size(118, 26);
+
+                windowsNativeHintLabel.Text = T.WindowsNativeHint;
+                windowsNativeHintLabel.ForeColor = SystemColors.GrayText;
+                windowsNativeHintLabel.Location = new Point(16, 202);
+                windowsNativeHintLabel.Size = new Size(426, 42);
 
                 barkEnabledBox.Text = T.BarkEnabled;
                 barkEnabledBox.Checked = barkEnabled;
@@ -216,6 +250,11 @@ namespace WorkStatusLight
                 cancelButton.Size = new Size(75, 26);
                 cancelButton.DialogResult = DialogResult.Cancel;
 
+                windowsNativeTestButton.Click += delegate
+                {
+                    WindowsNativeNotifier.SendAsync("test", T.WindowsNativeTestTitle, T.WindowsNativeTestBody, true, this);
+                };
+
                 barkTestButton.Click += delegate
                 {
                     string serverUrl;
@@ -279,6 +318,9 @@ namespace WorkStatusLight
                         return;
                     }
 
+                    windowsNativeEnabled = windowsNativeEnabledBox.Checked;
+                    windowsNativeNotifyConfirm = windowsNativeConfirmBox.Checked;
+                    windowsNativeNotifyDone = windowsNativeDoneBox.Checked;
                     barkServerUrl = serverUrl;
                     barkDeviceKey = deviceKey;
                     barkEnabled = barkEnabledBox.Checked && !String.IsNullOrWhiteSpace(barkDeviceKey);
@@ -297,10 +339,17 @@ namespace WorkStatusLight
                     notificationTitleTemplate = NormalizeNotificationTemplate(titleBox.Text, T.NotificationDefaultTitleTemplate);
                     notificationBodyTemplate = NormalizeNotificationTemplate(bodyBox.Text, T.NotificationDefaultBodyTemplate);
                     WriteSettings();
-                    Logger.Write("Notification configured barkEnabled=" + barkEnabled + " barkKey=" + MaskSecret(barkDeviceKey) + " pushPlusEnabled=" + pushPlusEnabled + " pushPlusToken=" + MaskSecret(pushPlusToken) + " telegramEnabled=" + telegramEnabled + " telegramToken=" + MaskSecret(telegramBotToken) + " telegramChatId=" + MaskSecret(telegramChatId) + " telegramProxy=" + (String.IsNullOrWhiteSpace(telegramProxyUrl) ? "none" : "set"));
+                    Logger.Write("Notification configured windowsNativeEnabled=" + windowsNativeEnabled + " barkEnabled=" + barkEnabled + " barkKey=" + MaskSecret(barkDeviceKey) + " pushPlusEnabled=" + pushPlusEnabled + " pushPlusToken=" + MaskSecret(pushPlusToken) + " telegramEnabled=" + telegramEnabled + " telegramToken=" + MaskSecret(telegramBotToken) + " telegramChatId=" + MaskSecret(telegramChatId) + " telegramProxy=" + (String.IsNullOrWhiteSpace(telegramProxyUrl) ? "none" : "set"));
                     dialog.DialogResult = DialogResult.OK;
                     dialog.Close();
                 };
+
+                windowsNativeNotifyGroup.Controls.Add(windowsNativeConfirmBox);
+                windowsNativeNotifyGroup.Controls.Add(windowsNativeDoneBox);
+                windowsNativePage.Controls.Add(windowsNativeEnabledBox);
+                windowsNativePage.Controls.Add(windowsNativeNotifyGroup);
+                windowsNativePage.Controls.Add(windowsNativeTestButton);
+                windowsNativePage.Controls.Add(windowsNativeHintLabel);
 
                 barkNotifyGroup.Controls.Add(barkConfirmBox);
                 barkNotifyGroup.Controls.Add(barkDoneBox);
@@ -340,6 +389,7 @@ namespace WorkStatusLight
                 templatePage.Controls.Add(previewBox);
                 templatePage.Controls.Add(templateHintLabel);
 
+                tabs.TabPages.Add(windowsNativePage);
                 tabs.TabPages.Add(barkPage);
                 tabs.TabPages.Add(pushPlusPage);
                 tabs.TabPages.Add(telegramPage);

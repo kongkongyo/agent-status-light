@@ -16,6 +16,7 @@ namespace WorkStatusLight
             {
                 currentSkin = "system";
                 currentLightOrientation = LightOrientationHorizontalValue;
+                breathingLightEnabled = true;
                 return;
             }
 
@@ -25,6 +26,10 @@ namespace WorkStatusLight
                 SettingsPayload settings = serializer.Deserialize<SettingsPayload>(File.ReadAllText(settingsPath, Encoding.UTF8));
                 currentSkin = NormalizeSkin(settings == null ? null : settings.skin);
                 currentLightOrientation = NormalizeLightOrientation(settings == null ? null : settings.lightOrientation);
+                breathingLightEnabled = settings == null || !settings.breathingLightEnabled.HasValue || settings.breathingLightEnabled.Value;
+                windowsNativeEnabled = settings != null && settings.windowsNativeEnabled;
+                windowsNativeNotifyConfirm = settings != null && settings.windowsNativeNotifyConfirm;
+                windowsNativeNotifyDone = settings == null || !settings.windowsNativeNotifyDone.HasValue || settings.windowsNativeNotifyDone.Value;
                 barkServerUrl = NormalizeBarkServerUrl(settings == null ? null : settings.barkServerUrl);
                 barkDeviceKey = settings == null ? String.Empty : (settings.barkDeviceKey ?? String.Empty).Trim();
                 barkEnabled = settings != null && settings.barkEnabled && !String.IsNullOrWhiteSpace(barkDeviceKey);
@@ -60,6 +65,10 @@ namespace WorkStatusLight
             {
                 currentSkin = "system";
                 currentLightOrientation = LightOrientationHorizontalValue;
+                breathingLightEnabled = true;
+                windowsNativeEnabled = false;
+                windowsNativeNotifyConfirm = false;
+                windowsNativeNotifyDone = true;
                 barkServerUrl = "https://api.day.app";
                 barkDeviceKey = String.Empty;
                 barkEnabled = false;
@@ -97,6 +106,10 @@ namespace WorkStatusLight
                 {
                     skin = currentSkin,
                     lightOrientation = currentLightOrientation,
+                    breathingLightEnabled = breathingLightEnabled,
+                    windowsNativeEnabled = windowsNativeEnabled,
+                    windowsNativeNotifyConfirm = windowsNativeNotifyConfirm,
+                    windowsNativeNotifyDone = windowsNativeNotifyDone,
                     barkEnabled = barkEnabled,
                     barkServerUrl = barkServerUrl,
                     barkDeviceKey = barkDeviceKey,
@@ -125,7 +138,7 @@ namespace WorkStatusLight
                     windowX = Location.X,
                     windowY = Location.Y
                 }), Encoding.UTF8);
-                Logger.Write("Settings saved skin=" + currentSkin + " lightOrientation=" + currentLightOrientation + " barkEnabled=" + barkEnabled + " barkKey=" + MaskSecret(barkDeviceKey) + " pushPlusEnabled=" + pushPlusEnabled + " pushPlusToken=" + MaskSecret(pushPlusToken) + " telegramEnabled=" + telegramEnabled + " telegramToken=" + MaskSecret(telegramBotToken) + " telegramProxy=" + (String.IsNullOrWhiteSpace(telegramProxyUrl) ? "none" : "set") + " soundEnabled=" + soundEnabled);
+                Logger.Write("Settings saved skin=" + currentSkin + " lightOrientation=" + currentLightOrientation + " breathingLightEnabled=" + breathingLightEnabled + " windowsNativeEnabled=" + windowsNativeEnabled + " barkEnabled=" + barkEnabled + " barkKey=" + MaskSecret(barkDeviceKey) + " pushPlusEnabled=" + pushPlusEnabled + " pushPlusToken=" + MaskSecret(pushPlusToken) + " telegramEnabled=" + telegramEnabled + " telegramToken=" + MaskSecret(telegramBotToken) + " telegramProxy=" + (String.IsNullOrWhiteSpace(telegramProxyUrl) ? "none" : "set") + " soundEnabled=" + soundEnabled);
             }
             catch (Exception ex)
             {

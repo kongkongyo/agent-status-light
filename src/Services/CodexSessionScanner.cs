@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Web.Script.Serialization;
 
 namespace WorkStatusLight
@@ -15,6 +16,7 @@ namespace WorkStatusLight
         private const int SessionFileFreshHours = 24;
         private const int PendingConfirmationHoldHours = 6;
         private const int SessionFileLimit = 30;
+        private const int SessionScanRefreshMilliseconds = 1200;
         private static readonly Regex ApprovalGatedCommandPattern = new Regex(
             @"(^|[;&|{(]\s*)(remove-item|rm|del|erase|rmdir|rd|stop-process)\b|(^|[;&|{(]\s*)git\s+(reset|clean)\b|(^|[;&|{(]\s*)git\s+checkout\s+--\b",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
@@ -23,10 +25,12 @@ namespace WorkStatusLight
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
         private readonly Dictionary<string, SessionFileSnapshot> sessionFileCache = new Dictionary<string, SessionFileSnapshot>(StringComparer.OrdinalIgnoreCase);
+        private readonly object syncRoot = new object();
         private readonly string sessionsRoot;
 
         private DateTime lastSessionScanAt = DateTime.MinValue;
         private SessionSnapshot cachedSessionSnapshot;
+        private bool sessionScanInProgress;
 
         public CodexSessionScanner()
         {
@@ -39,26 +43,91 @@ namespace WorkStatusLight
 
         public SessionSnapshot GetSnapshot(DateTime now, int doneHoldSeconds)
         {
-            if ((now - lastSessionScanAt).TotalMilliseconds < 700 && cachedSessionSnapshot != null)
+            bool scanSynchronously = false;
+            bool queueScan = false;
+            SessionSnapshot snapshot;
+
+            lock (syncRoot)
             {
-                return cachedSessionSnapshot;
+                if (cachedSessionSnapshot == null)
+                {
+                    if (!sessionScanInProgress)
+                    {
+                        sessionScanInProgress = true;
+                        lastSessionScanAt = now;
+                        scanSynchronously = true;
+                    }
+                }
+                else if (!sessionScanInProgress &&
+                    (now - lastSessionScanAt).TotalMilliseconds >= SessionScanRefreshMilliseconds)
+                {
+                    sessionScanInProgress = true;
+                    lastSessionScanAt = now;
+                    queueScan = true;
+                }
+
+                snapshot = cachedSessionSnapshot;
             }
 
-            lastSessionScanAt = now;
+            if (scanSynchronously)
+            {
+                return ScanAndCache(now, doneHoldSeconds);
+            }
+
+            if (queueScan)
+            {
+                QueueScan(now, doneHoldSeconds);
+            }
+
+            return snapshot ?? SessionSnapshot.Unavailable();
+        }
+
+        private void QueueScan(DateTime now, int doneHoldSeconds)
+        {
+            try
+            {
+                if (!ThreadPool.QueueUserWorkItem(delegate { ScanAndCache(now, doneHoldSeconds); }))
+                {
+                    lock (syncRoot)
+                    {
+                        sessionScanInProgress = false;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Write("Session scan queue failed: " + ex.Message);
+                lock (syncRoot)
+                {
+                    sessionScanInProgress = false;
+                }
+            }
+        }
+
+        private SessionSnapshot ScanAndCache(DateTime now, int doneHoldSeconds)
+        {
+            SessionSnapshot snapshot = ScanSessions(now, doneHoldSeconds);
+            lock (syncRoot)
+            {
+                cachedSessionSnapshot = snapshot;
+                lastSessionScanAt = DateTime.Now;
+                sessionScanInProgress = false;
+            }
+
+            return snapshot;
+        }
+
+        private SessionSnapshot ScanSessions(DateTime now, int doneHoldSeconds)
+        {
             if (!Directory.Exists(sessionsRoot))
             {
-                cachedSessionSnapshot = SessionSnapshot.Unavailable();
-                return cachedSessionSnapshot;
+                return SessionSnapshot.Unavailable();
             }
 
             try
             {
                 DateTime fileCutoff = now.AddHours(-SessionFileFreshHours);
-                string[] files = Directory.GetFiles(sessionsRoot, "rollout-*.jsonl", SearchOption.AllDirectories)
-                    .Where(path => File.GetLastWriteTime(path) >= fileCutoff)
-                    .OrderByDescending(path => File.GetLastWriteTime(path))
-                    .Take(SessionFileLimit)
-                    .ToArray();
+                string[] files = GetRecentSessionFiles(fileCutoff);
                 PruneSessionFileCache(files);
 
                 DateTime latestCompletionAt = DateTime.MinValue;
@@ -68,7 +137,17 @@ namespace WorkStatusLight
 
                 foreach (string file in files)
                 {
-                    SessionFileSnapshot fileSnapshot = GetFileSnapshot(file);
+                    SessionFileSnapshot fileSnapshot;
+                    try
+                    {
+                        fileSnapshot = GetFileSnapshot(file);
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Write("Session file skipped: " + ex.Message);
+                        continue;
+                    }
+
                     if (fileSnapshot == null) continue;
 
                     if (fileSnapshot.LatestCompletionAt > latestCompletionAt)
@@ -102,14 +181,101 @@ namespace WorkStatusLight
                     }
                 }
 
-                cachedSessionSnapshot = new SessionSnapshot(true, workingCount, confirmCount, doneCount, latestCompletionAt);
-                return cachedSessionSnapshot;
+                return new SessionSnapshot(true, workingCount, confirmCount, doneCount, latestCompletionAt);
             }
             catch (Exception ex)
             {
                 Logger.Write("Session scan unavailable: " + ex.Message);
-                cachedSessionSnapshot = SessionSnapshot.Unavailable();
-                return cachedSessionSnapshot;
+                return SessionSnapshot.Unavailable();
+            }
+        }
+
+        private string[] GetRecentSessionFiles(DateTime fileCutoff)
+        {
+            var candidates = new List<SessionFileCandidate>();
+            foreach (string path in EnumerateSessionFiles(sessionsRoot))
+            {
+                DateTime lastWriteTime;
+                try
+                {
+                    lastWriteTime = File.GetLastWriteTime(path);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Write("Session file timestamp skipped: " + ex.Message);
+                    continue;
+                }
+
+                if (lastWriteTime < fileCutoff)
+                {
+                    continue;
+                }
+
+                AddRecentSessionFile(candidates, new SessionFileCandidate(path, lastWriteTime));
+            }
+
+            return candidates.Select(candidate => candidate.Path).ToArray();
+        }
+
+        private static IEnumerable<string> EnumerateSessionFiles(string root)
+        {
+            var pending = new Stack<string>();
+            pending.Push(root);
+
+            while (pending.Count > 0)
+            {
+                string directory = pending.Pop();
+                string[] files;
+                try
+                {
+                    files = Directory.GetFiles(directory, "rollout-*.jsonl", SearchOption.TopDirectoryOnly);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Write("Session scan directory skipped: " + ex.Message);
+                    files = new string[0];
+                }
+
+                foreach (string file in files)
+                {
+                    yield return file;
+                }
+
+                string[] directories;
+                try
+                {
+                    directories = Directory.GetDirectories(directory);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Write("Session scan child directories skipped: " + ex.Message);
+                    directories = new string[0];
+                }
+
+                foreach (string child in directories)
+                {
+                    pending.Push(child);
+                }
+            }
+        }
+
+        private static void AddRecentSessionFile(List<SessionFileCandidate> candidates, SessionFileCandidate candidate)
+        {
+            int index = 0;
+            while (index < candidates.Count && candidates[index].LastWriteTime >= candidate.LastWriteTime)
+            {
+                index++;
+            }
+
+            if (index >= SessionFileLimit)
+            {
+                return;
+            }
+
+            candidates.Insert(index, candidate);
+            if (candidates.Count > SessionFileLimit)
+            {
+                candidates.RemoveAt(SessionFileLimit);
             }
         }
 
@@ -313,8 +479,9 @@ namespace WorkStatusLight
                     IsShellCommandToolName(ReadString(values, "name")) ||
                     IsShellCommandToolName(ReadString(values, "recipient_name"));
 
-                string command = ReadString(values, "command");
+                string command;
                 if (currentShellContext &&
+                    TryReadNonEmptyString(values, "command", out command) &&
                     (IsApprovalGatedCommand(command) ||
                      (untrustedApproval && !IsTrustedReadOnlyCommand(command))))
                 {
@@ -396,6 +563,12 @@ namespace WorkStatusLight
             }
 
             return TrustedReadOnlyCommandPattern.IsMatch(trimmed);
+        }
+
+        private static bool TryReadNonEmptyString(Dictionary<string, object> values, string key, out string result)
+        {
+            result = ReadString(values, key);
+            return !String.IsNullOrWhiteSpace(result);
         }
 
         private static bool TryGetPayload(string line, out Dictionary<string, object> payload)
@@ -484,6 +657,18 @@ namespace WorkStatusLight
             }
 
             return DateTime.MinValue;
+        }
+
+        private sealed class SessionFileCandidate
+        {
+            public SessionFileCandidate(string path, DateTime lastWriteTime)
+            {
+                Path = path;
+                LastWriteTime = lastWriteTime;
+            }
+
+            public string Path { get; private set; }
+            public DateTime LastWriteTime { get; private set; }
         }
     }
 }

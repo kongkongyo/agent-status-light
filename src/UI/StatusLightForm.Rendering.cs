@@ -31,17 +31,19 @@ namespace WorkStatusLight
             }
 
             Color inactiveColor = GetInactiveLightColor(palette);
+            float breathingIntensity = GetBreathingIntensity();
+            float doneIntensity = IsDoneFlashRunning() ? 1f : breathingIntensity;
             if (vertical)
             {
-                DrawLight(g, 32, 20, 32, confirmLightColor, currentConfirmCount > 0, currentConfirmCount, palette, inactiveColor);
-                DrawLight(g, 32, 65, 32, workingLightColor, currentWorkingCount > 0, currentWorkingCount, palette, inactiveColor);
-                DrawLight(g, 32, 110, 32, doneLightColor, currentDoneCount > 0 && doneFlashVisible, currentDoneCount, palette, inactiveColor);
+                DrawLight(g, 32, 20, 32, confirmLightColor, currentConfirmCount > 0, currentConfirmCount, palette, inactiveColor, breathingIntensity);
+                DrawLight(g, 32, 65, 32, workingLightColor, currentWorkingCount > 0, currentWorkingCount, palette, inactiveColor, breathingIntensity);
+                DrawLight(g, 32, 110, 32, doneLightColor, currentDoneCount > 0 && doneFlashVisible, currentDoneCount, palette, inactiveColor, doneIntensity);
                 return;
             }
 
-            DrawLight(g, 20, 32, 32, confirmLightColor, currentConfirmCount > 0, currentConfirmCount, palette, inactiveColor);
-            DrawLight(g, 65, 32, 32, workingLightColor, currentWorkingCount > 0, currentWorkingCount, palette, inactiveColor);
-            DrawLight(g, 110, 32, 32, doneLightColor, currentDoneCount > 0 && doneFlashVisible, currentDoneCount, palette, inactiveColor);
+            DrawLight(g, 20, 32, 32, confirmLightColor, currentConfirmCount > 0, currentConfirmCount, palette, inactiveColor, breathingIntensity);
+            DrawLight(g, 65, 32, 32, workingLightColor, currentWorkingCount > 0, currentWorkingCount, palette, inactiveColor, breathingIntensity);
+            DrawLight(g, 110, 32, 32, doneLightColor, currentDoneCount > 0 && doneFlashVisible, currentDoneCount, palette, inactiveColor, doneIntensity);
         }
 
 
@@ -161,6 +163,13 @@ namespace WorkStatusLight
 
         private static void DrawLight(Graphics g, int x, int y, int size, Color color, bool active, int count, SkinPalette palette, Color inactiveColor)
         {
+            DrawLight(g, x, y, size, color, active, count, palette, inactiveColor, 1f);
+        }
+
+
+        private static void DrawLight(Graphics g, int x, int y, int size, Color color, bool active, int count, SkinPalette palette, Color inactiveColor, float intensity)
+        {
+            intensity = ClampLightIntensity(intensity);
             Rectangle outer = new Rectangle(x, y, size, size);
             using (var rimBrush = new SolidBrush(palette.Rim))
             {
@@ -172,7 +181,7 @@ namespace WorkStatusLight
                 for (int i = 3; i >= 1; i--)
                 {
                     int grow = 3 * i;
-                    int alpha = 28 + (18 * (4 - i));
+                    int alpha = ScaleAlpha(28 + (18 * (4 - i)), intensity);
                     Rectangle glowRect = new Rectangle(x - grow, y - grow, size + grow * 2, size + grow * 2);
                     using (var glowBrush = new SolidBrush(Color.FromArgb(alpha, color)))
                     {
@@ -182,14 +191,14 @@ namespace WorkStatusLight
             }
 
             Rectangle inner = new Rectangle(x + 6, y + 6, size - 12, size - 12);
-            Color baseColor = active ? color : inactiveColor;
+            Color baseColor = active ? ScaleLightColor(color, intensity) : inactiveColor;
             using (var lensBrush = new LinearGradientBrush(inner, baseColor, palette.LensShadow, 65))
             {
                 g.FillEllipse(lensBrush, inner);
             }
 
             Rectangle shine = new Rectangle(x + 13, y + 11, 11, 7);
-            using (var shineBrush = new SolidBrush(Color.FromArgb(active ? 155 : palette.InactiveShineAlpha, palette.Shine)))
+            using (var shineBrush = new SolidBrush(Color.FromArgb(active ? ScaleAlpha(155, intensity) : palette.InactiveShineAlpha, palette.Shine)))
             {
                 g.FillEllipse(shineBrush, shine);
             }
@@ -198,6 +207,42 @@ namespace WorkStatusLight
             {
                 DrawLightCount(g, inner, count);
             }
+        }
+
+
+        private static float ClampLightIntensity(float intensity)
+        {
+            if (intensity < BreathingMinimumIntensity) return BreathingMinimumIntensity;
+            if (intensity > 1f) return 1f;
+            return intensity;
+        }
+
+
+        private static int ScaleAlpha(int alpha, float intensity)
+        {
+            int value = (int)Math.Round(alpha * intensity);
+            if (value < 0) return 0;
+            if (value > 255) return 255;
+            return value;
+        }
+
+
+        private static Color ScaleLightColor(Color color, float intensity)
+        {
+            return Color.FromArgb(
+                color.A,
+                ScaleColorChannel(color.R, intensity),
+                ScaleColorChannel(color.G, intensity),
+                ScaleColorChannel(color.B, intensity));
+        }
+
+
+        private static int ScaleColorChannel(int value, float intensity)
+        {
+            int scaled = (int)Math.Round(value * intensity);
+            if (scaled < 0) return 0;
+            if (scaled > 255) return 255;
+            return scaled;
         }
 
 

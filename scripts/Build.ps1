@@ -10,6 +10,7 @@ $dist = Join-Path $root "dist"
 $exe = Join-Path $dist "AgentStatusLight.exe"
 $sourceRoot = Join-Path $root "src"
 $icon = Join-Path $root "assets\icons\AgentStatusLight.ico"
+$generatedVersionSource = Join-Path $sourceRoot "Properties\AssemblyVersion.Generated.cs"
 
 $csc = Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 if (-not (Test-Path $csc)) {
@@ -21,6 +22,29 @@ if (-not (Test-Path $csc)) {
 if (-not (Test-Path $icon)) {
   throw "Could not find application icon: $icon"
 }
+
+function Get-BuildVersion {
+  return (Get-Date).ToString("yyMMdd")
+}
+
+function Write-GeneratedVersionSource {
+  param(
+    [string]$Path,
+    [string]$Version
+  )
+
+  $directory = Split-Path -Parent $Path
+  New-Item -ItemType Directory -Force -Path $directory | Out-Null
+  $content = @"
+using System.Reflection;
+
+[assembly: AssemblyInformationalVersion("$Version")]
+"@
+
+  [System.IO.File]::WriteAllText($Path, $content, [System.Text.UTF8Encoding]::new($false))
+}
+
+Write-GeneratedVersionSource -Path $generatedVersionSource -Version (Get-BuildVersion)
 
 New-Item -ItemType Directory -Force -Path $dist | Out-Null
 $sources = Get-ChildItem -Path $sourceRoot -Filter "*.cs" -Recurse |

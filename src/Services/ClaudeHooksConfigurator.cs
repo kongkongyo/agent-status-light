@@ -94,18 +94,15 @@ namespace WorkStatusLight
             if (File.Exists(settingsPath))
             {
                 backupPath = settingsPath + ".bak-" + DateTime.Now.ToString("yyyyMMddHHmmssfff", CultureInfo.InvariantCulture);
-                File.Copy(settingsPath, backupPath, false);
-                Logger.Write("Claude hooks settings backed up path=" + settingsPath + " backup=" + backupPath);
-            }
-
-            string directory = Path.GetDirectoryName(settingsPath);
-            if (!String.IsNullOrWhiteSpace(directory))
-            {
-                Directory.CreateDirectory(directory);
             }
 
             var serializer = new JavaScriptSerializer();
-            File.WriteAllText(settingsPath, serializer.Serialize(settings), NoBomUtf8);
+            WriteTextAtomically(settingsPath, serializer.Serialize(settings), backupPath);
+            if (!String.IsNullOrEmpty(backupPath))
+            {
+                Logger.Write("Claude hooks settings backed up path=" + settingsPath + " backup=" + backupPath);
+            }
+
             Logger.Write("Claude hooks configured path=" + settingsPath + " eventsAdded=" + addedEventCount);
 
             return new ClaudeHooksConfigurationResult(settingsPath, backupPath, addedEventCount, true);
@@ -153,14 +150,59 @@ namespace WorkStatusLight
             }
 
             string backupPath = settingsPath + ".bak-" + DateTime.Now.ToString("yyyyMMddHHmmssfff", CultureInfo.InvariantCulture);
-            File.Copy(settingsPath, backupPath, false);
-            Logger.Write("Claude hooks settings backed up before remove path=" + settingsPath + " backup=" + backupPath);
 
             var serializer = new JavaScriptSerializer();
-            File.WriteAllText(settingsPath, serializer.Serialize(settings), NoBomUtf8);
+            WriteTextAtomically(settingsPath, serializer.Serialize(settings), backupPath);
+            Logger.Write("Claude hooks settings backed up before remove path=" + settingsPath + " backup=" + backupPath);
             Logger.Write("Claude hooks removed path=" + settingsPath + " handlersRemoved=" + removedCount);
 
             return new ClaudeHooksConfigurationResult(settingsPath, backupPath, removedCount, true);
+        }
+
+        private static void WriteTextAtomically(string path, string content, string backupPath)
+        {
+            string directory = Path.GetDirectoryName(path);
+            if (!String.IsNullOrWhiteSpace(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            string tempDirectory = String.IsNullOrWhiteSpace(directory) ? Environment.CurrentDirectory : directory;
+            string tempPath = Path.Combine(tempDirectory, ".AgentStatusLight-" + Guid.NewGuid().ToString("N") + ".tmp");
+
+            try
+            {
+                using (var stream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                using (var writer = new StreamWriter(stream, NoBomUtf8))
+                {
+                    writer.Write(content);
+                    writer.Flush();
+                    stream.Flush(true);
+                }
+
+                if (File.Exists(path))
+                {
+                    string replaceBackupPath = String.IsNullOrEmpty(backupPath) ? null : backupPath;
+                    File.Replace(tempPath, path, replaceBackupPath, true);
+                }
+                else
+                {
+                    File.Move(tempPath, path);
+                }
+            }
+            finally
+            {
+                try
+                {
+                    if (File.Exists(tempPath))
+                    {
+                        File.Delete(tempPath);
+                    }
+                }
+                catch
+                {
+                }
+            }
         }
 
         private static Dictionary<string, object> ReadSettings(string settingsPath)
@@ -271,38 +313,28 @@ namespace WorkStatusLight
                 return false;
             }
 
-            if (String.Equals(command, executablePath, StringComparison.OrdinalIgnoreCase) &&
+            if (IsSameExecutablePath(command, executablePath) &&
                 HasClaudeHookArgument(handler))
             {
                 return true;
             }
 
-            return LooksLikeAgentStatusLightCommand(command) &&
-                (HasClaudeHookArgument(handler) ||
-                 command.IndexOf("--claude-hook", StringComparison.OrdinalIgnoreCase) >= 0);
+            return IsLegacyClaudeHookCommandForExecutable(command, executablePath);
         }
 
-        private static bool LooksLikeAgentStatusLightCommand(string command)
+        private static bool IsLegacyClaudeHookCommandForExecutable(string command, string executablePath)
         {
-            string trimmed = command.Trim().Trim('"');
-            string fileName = String.Empty;
-
-            try
+            if (!ContainsClaudeHookSwitch(command))
             {
-                fileName = Path.GetFileName(trimmed);
-            }
-            catch
-            {
-                fileName = String.Empty;
+                return false;
             }
 
-            return String.Equals(fileName, "AgentStatusLight.exe", StringComparison.OrdinalIgnoreCase) ||
-                command.IndexOf("AgentStatusLight.exe", StringComparison.OrdinalIgnoreCase) >= 0;
+            string commandExecutablePath = ExtractExecutablePath(command);
+            return IsSameExecutablePath(commandExecutablePath, executablePath);
         }
 
         private static bool EnsureEventHandler(Dictionary<string, object> hooks, string eventName, string executablePath)
         {
-            string shellCommand = BuildHookCommand(executablePath);
             object existing;
             ArrayList groups;
             if (hooks.TryGetValue(eventName, out existing))
@@ -315,7 +347,7 @@ namespace WorkStatusLight
             }
 
             hooks[eventName] = groups;
-            bool changed = UpgradeCommandHooks(groups, shellCommand, executablePath);
+            bool changed = UpgradeCommandHooks(groups, executablePath);
 
             if (ContainsCommandHook(groups, executablePath))
             {
@@ -360,7 +392,7 @@ namespace WorkStatusLight
             throw new InvalidOperationException(description + " must be an array.");
         }
 
-        private static bool UpgradeCommandHooks(ArrayList groups, string shellCommand, string executablePath)
+        private static bool UpgradeCommandHooks(ArrayList groups, string executablePath)
         {
             bool changed = false;
             foreach (object groupValue in groups)
@@ -383,14 +415,14 @@ namespace WorkStatusLight
                         continue;
                     }
 
-                    if (String.Equals(ReadString(handler, "command"), shellCommand, StringComparison.Ordinal))
+                    if (IsLegacyClaudeHookCommandForExecutable(ReadString(handler, "command"), executablePath))
                     {
                         handler["command"] = executablePath;
                         handler["args"] = new ArrayList { "--claude-hook" };
                         handler["async"] = true;
                         changed = true;
                     }
-                    else if (String.Equals(ReadString(handler, "command"), executablePath, StringComparison.Ordinal) &&
+                    else if (IsSameExecutablePath(ReadString(handler, "command"), executablePath) &&
                         HasClaudeHookArgument(handler) &&
                         !ReadBool(handler, "async"))
                     {
@@ -420,7 +452,7 @@ namespace WorkStatusLight
                     if (handler == null) continue;
 
                     if (String.Equals(ReadString(handler, "type"), "command", StringComparison.OrdinalIgnoreCase) &&
-                        String.Equals(ReadString(handler, "command"), executablePath, StringComparison.Ordinal) &&
+                        IsSameExecutablePath(ReadString(handler, "command"), executablePath) &&
                         HasClaudeHookArgument(handler))
                     {
                         return true;
@@ -451,6 +483,91 @@ namespace WorkStatusLight
 
             return args.Count == 1 &&
                 String.Equals(Convert.ToString(args[0], CultureInfo.InvariantCulture), "--claude-hook", StringComparison.Ordinal);
+        }
+
+        private static bool IsSameExecutablePath(string left, string right)
+        {
+            string normalizedLeft = NormalizeExecutablePath(left);
+            string normalizedRight = NormalizeExecutablePath(right);
+            return !String.IsNullOrEmpty(normalizedLeft) &&
+                !String.IsNullOrEmpty(normalizedRight) &&
+                String.Equals(normalizedLeft, normalizedRight, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string NormalizeExecutablePath(string path)
+        {
+            if (String.IsNullOrWhiteSpace(path))
+            {
+                return String.Empty;
+            }
+
+            string trimmed = path.Trim().Trim('"');
+            try
+            {
+                return Path.GetFullPath(trimmed);
+            }
+            catch
+            {
+                return trimmed;
+            }
+        }
+
+        private static string ExtractExecutablePath(string command)
+        {
+            string trimmed = command.Trim();
+            if (trimmed.StartsWith("\"", StringComparison.Ordinal))
+            {
+                int endQuote = trimmed.IndexOf('"', 1);
+                if (endQuote > 1)
+                {
+                    return trimmed.Substring(1, endQuote - 1);
+                }
+            }
+
+            int hookIndex = trimmed.IndexOf("--claude-hook", StringComparison.OrdinalIgnoreCase);
+            if (hookIndex > 0)
+            {
+                return trimmed.Substring(0, hookIndex).Trim().Trim('"');
+            }
+
+            return trimmed.Trim('"');
+        }
+
+        private static bool ContainsClaudeHookSwitch(string command)
+        {
+            bool inQuotes = false;
+            var token = new StringBuilder();
+
+            for (int index = 0; index < command.Length; index++)
+            {
+                char value = command[index];
+                if (value == '"')
+                {
+                    inQuotes = !inQuotes;
+                    continue;
+                }
+
+                if (Char.IsWhiteSpace(value) && !inQuotes)
+                {
+                    if (IsClaudeHookSwitch(token))
+                    {
+                        return true;
+                    }
+
+                    token.Length = 0;
+                    continue;
+                }
+
+                token.Append(value);
+            }
+
+            return IsClaudeHookSwitch(token);
+        }
+
+        private static bool IsClaudeHookSwitch(StringBuilder token)
+        {
+            return token.Length > 0 &&
+                String.Equals(token.ToString(), "--claude-hook", StringComparison.OrdinalIgnoreCase);
         }
 
         private static Dictionary<string, object> FindEmptyMatcherGroup(ArrayList groups)

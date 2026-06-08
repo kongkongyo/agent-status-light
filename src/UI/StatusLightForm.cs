@@ -20,6 +20,9 @@ namespace WorkStatusLight
         private const int DoneHoldSeconds = 25;
         private const int ExternalStatusHoldSeconds = 12;
         private const int ExternalForegroundHoldSeconds = 90;
+        private const int BreathingTimerIntervalMilliseconds = 60;
+        private const int BreathingCycleTicks = 36;
+        private const float BreathingMinimumIntensity = 0.65f;
         private static readonly Color DefaultConfirmLightColor = Color.FromArgb(255, 82, 82);
         private static readonly Color DefaultWorkingLightColor = Color.FromArgb(255, 200, 69);
         private static readonly Color DefaultDoneLightColor = Color.FromArgb(32, 195, 106);
@@ -32,6 +35,7 @@ namespace WorkStatusLight
         private readonly System.Windows.Forms.Timer statusTimer;
         private readonly System.Windows.Forms.Timer topMostTimer;
         private readonly System.Windows.Forms.Timer flashTimer;
+        private readonly System.Windows.Forms.Timer breathingTimer;
         private readonly ToolTip tooltip;
         private readonly ToolStripMenuItem restoreAutoItem;
         private readonly ToolStripMenuItem skinSystemItem;
@@ -40,6 +44,8 @@ namespace WorkStatusLight
         private readonly ToolStripMenuItem skinTransparentItem;
         private readonly ToolStripMenuItem lightOrientationHorizontalItem;
         private readonly ToolStripMenuItem lightOrientationVerticalItem;
+        private readonly ToolStripMenuItem breathingLightItem;
+        private readonly ToolStripMenuItem aboutItem;
 
         private string currentState = "waiting";
         private string currentLabel = "Idle";
@@ -66,6 +72,9 @@ namespace WorkStatusLight
         private bool barkEnabled;
         private bool barkNotifyConfirm;
         private bool barkNotifyDone = true;
+        private bool windowsNativeEnabled;
+        private bool windowsNativeNotifyConfirm;
+        private bool windowsNativeNotifyDone = true;
         private bool pushPlusEnabled;
         private bool pushPlusNotifyConfirm;
         private bool pushPlusNotifyDone = true;
@@ -73,6 +82,7 @@ namespace WorkStatusLight
         private bool telegramNotifyConfirm;
         private bool telegramNotifyDone = true;
         private bool soundEnabled;
+        private bool breathingLightEnabled = true;
         private bool autoDetect;
         private bool dragging;
         private bool hasSeenBusy;
@@ -88,10 +98,15 @@ namespace WorkStatusLight
         private DateTime lastSessionCompletionSeen = DateTime.MinValue;
         private Point savedWindowLocation;
         private int doneFlashTicksRemaining;
+        private int breathingTick;
         private int quietSampleCount;
         private int strongBusyAfterDoneCount;
         private bool sessionTrackingInitialized;
         private bool hasSavedWindowLocation;
+        private bool updateCheckStarted;
+        private bool updateAvailable;
+        private string latestAvailableVersion = String.Empty;
+        private Image updateAvailableImage;
 
         public StatusLightForm(bool autoDetect)
         {
@@ -131,6 +146,7 @@ namespace WorkStatusLight
             lightOrientationVerticalItem = new ToolStripMenuItem(T.LightOrientationVertical);
             var notificationSettingsItem = new ToolStripMenuItem(T.NotificationSettings);
             var colorSettingsItem = new ToolStripMenuItem(T.ColorSettings);
+            breathingLightItem = new ToolStripMenuItem(T.BreathingLightEffect);
             var soundSettingsItem = new ToolStripMenuItem(T.SoundSettings);
             var claudeHooksItem = new ToolStripMenuItem(T.ClaudeHooks);
             var configureClaudeHooksItem = new ToolStripMenuItem(T.ConfigureClaudeHooks);
@@ -138,9 +154,14 @@ namespace WorkStatusLight
             var workItem = new ToolStripMenuItem(T.YellowWorking);
             var confirmItem = new ToolStripMenuItem(T.RedConfirm);
             var doneItem = new ToolStripMenuItem(T.GreenDone);
+            aboutItem = new ToolStripMenuItem(T.AboutSoftware);
             var exitItem = new ToolStripMenuItem(T.Exit);
 
-            menu.Opening += delegate { UpdateRestoreAutoDetectMenu(); };
+            menu.Opening += delegate
+            {
+                UpdateRestoreAutoDetectMenu();
+                UpdateBreathingLightMenuCheck();
+            };
             restoreAutoItem.Click += delegate { RestoreAutoDetect(); };
             skinSystemItem.Click += delegate { SetSkin("system"); };
             skinDarkItem.Click += delegate { SetSkin("dark"); };
@@ -150,12 +171,14 @@ namespace WorkStatusLight
             lightOrientationVerticalItem.Click += delegate { SetLightOrientation(LightOrientationVerticalValue); };
             notificationSettingsItem.Click += delegate { ShowNotificationSettingsDialog(); };
             colorSettingsItem.Click += delegate { ShowColorSettingsDialog(); };
+            breathingLightItem.Click += delegate { ToggleBreathingLightEffect(); };
             soundSettingsItem.Click += delegate { ShowSoundSettingsDialog(); };
             configureClaudeHooksItem.Click += delegate { ConfigureClaudeHooksForCurrentUser(); };
             removeClaudeHooksItem.Click += delegate { RemoveClaudeHooksForCurrentUser(); };
             workItem.Click += delegate { ManualState("working", T.ManualWorking); };
             confirmItem.Click += delegate { ManualState("confirm", T.ManualConfirm); };
             doneItem.Click += delegate { ManualState("done", T.ManualDone); };
+            aboutItem.Click += delegate { ShowAboutDialog(); };
             exitItem.Click += delegate { Close(); };
             skinItem.DropDownItems.Add(skinSystemItem);
             skinItem.DropDownItems.Add(skinDarkItem);
@@ -167,22 +190,57 @@ namespace WorkStatusLight
             claudeHooksItem.DropDownItems.Add(removeClaudeHooksItem);
             UpdateSkinMenuChecks();
             UpdateLightOrientationMenuChecks();
+            UpdateBreathingLightMenuCheck();
             UpdateRestoreAutoDetectMenu();
 
             menu.Items.Add(restoreAutoItem);
             menu.Items.Add(skinItem);
-            menu.Items.Add(lightOrientationItem);
             menu.Items.Add(colorSettingsItem);
             menu.Items.Add(notificationSettingsItem);
             menu.Items.Add(soundSettingsItem);
+            menu.Items.Add(breathingLightItem);
+            menu.Items.Add(lightOrientationItem);
             menu.Items.Add(claudeHooksItem);
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(confirmItem);
             menu.Items.Add(workItem);
             menu.Items.Add(doneItem);
             menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add(aboutItem);
             menu.Items.Add(exitItem);
             ContextMenuStrip = menu;
+
+            flashTimer = new System.Windows.Forms.Timer { Interval = 180 };
+            flashTimer.Tick += delegate
+            {
+                if (doneFlashTicksRemaining <= 0)
+                {
+                    doneFlashVisible = true;
+                    flashTimer.Stop();
+                    UpdateBreathingTimer();
+                    RenderLayeredWindow();
+                    return;
+                }
+
+                doneFlashVisible = !doneFlashVisible;
+                doneFlashTicksRemaining--;
+                RenderLayeredWindow();
+            };
+
+            breathingTimer = new System.Windows.Forms.Timer { Interval = BreathingTimerIntervalMilliseconds };
+            breathingTimer.Tick += delegate
+            {
+                if (!HasBreathingLight())
+                {
+                    breathingTick = 0;
+                    breathingTimer.Stop();
+                    RenderLayeredWindow();
+                    return;
+                }
+
+                breathingTick = (breathingTick + 1) % BreathingCycleTicks;
+                RenderLayeredWindow();
+            };
 
             ReadStatus();
             UpdateAutoStatus();
@@ -200,22 +258,6 @@ namespace WorkStatusLight
             topMostTimer = new System.Windows.Forms.Timer { Interval = 250 };
             topMostTimer.Tick += delegate { ApplyTopMost(); };
             topMostTimer.Start();
-
-            flashTimer = new System.Windows.Forms.Timer { Interval = 180 };
-            flashTimer.Tick += delegate
-            {
-                if (doneFlashTicksRemaining <= 0)
-                {
-                    doneFlashVisible = true;
-                    flashTimer.Stop();
-                    RenderLayeredWindow();
-                    return;
-                }
-
-                doneFlashVisible = !doneFlashVisible;
-                doneFlashTicksRemaining--;
-                RenderLayeredWindow();
-            };
         }
 
         private void ApplyApplicationIcon()
@@ -242,6 +284,7 @@ namespace WorkStatusLight
             Logger.Write("Form shown at " + Location.X + "," + Location.Y + " handle=" + Handle);
             RenderLayeredWindow();
             ApplyTopMost();
+            BeginUpdateCheck();
         }
 
         protected override void OnHandleCreated(EventArgs e)
@@ -316,6 +359,11 @@ namespace WorkStatusLight
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             SaveWindowLocation();
+            if (updateAvailableImage != null)
+            {
+                updateAvailableImage.Dispose();
+                updateAvailableImage = null;
+            }
             base.OnFormClosing(e);
         }
 
@@ -369,6 +417,15 @@ namespace WorkStatusLight
             ApplyTopMost();
         }
 
+        private void ToggleBreathingLightEffect()
+        {
+            breathingLightEnabled = !breathingLightEnabled;
+            UpdateBreathingLightMenuCheck();
+            WriteSettings();
+            UpdateBreathingTimer();
+            RenderLayeredWindow();
+        }
+
         private void ApplyLightWindowSize()
         {
             Size targetSize = GetLightWindowSize();
@@ -400,6 +457,11 @@ namespace WorkStatusLight
         {
             lightOrientationHorizontalItem.Checked = !IsVerticalLightOrientation();
             lightOrientationVerticalItem.Checked = IsVerticalLightOrientation();
+        }
+
+        private void UpdateBreathingLightMenuCheck()
+        {
+            breathingLightItem.Checked = breathingLightEnabled;
         }
 
         private void UpdateRestoreAutoDetectMenu()

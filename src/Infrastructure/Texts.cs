@@ -5,7 +5,7 @@ namespace WorkStatusLight
     {
         public const string AppTitle = "AgentStatusLight";
         public const string RestoreAutoDetect = "\u6062\u590d\u81ea\u52a8\u5224\u65ad";
-        public const string Skin = "\u76ae\u80a4";
+        public const string Skin = "\u76ae\u80a4\u8bbe\u7f6e";
         public const string SkinSystem = "\u7cfb\u7edf";
         public const string SkinDark = "\u6df1\u8272";
         public const string SkinLight = "\u6d45\u8272";
@@ -14,10 +14,15 @@ namespace WorkStatusLight
         public const string LightOrientationHorizontal = "\u6a2a\u5411";
         public const string LightOrientationVertical = "\u7eb5\u5411";
         public const string BarkEnabled = "\u542f\u7528 Bark";
+        public const string WindowsNativeNotificationTab = "Windows";
+        public const string WindowsNativeEnabled = "\u542f\u7528 Windows \u901a\u77e5";
+        public const string WindowsNativeHint = "\u4f7f\u7528 Windows \u901a\u77e5\u533a\u63d0\u9192\uff0c\u4e0d\u9700\u8981 Token \u6216\u5916\u90e8\u670d\u52a1\u3002";
+        public const string WindowsNativeTest = "\u53d1\u9001\u6d4b\u8bd5\u901a\u77e5";
         public const string NotificationSettings = "\u901a\u77e5\u8bbe\u7f6e";
         public const string PushPlusEnabled = "\u542f\u7528 PushPlus";
         public const string TelegramEnabled = "\u542f\u7528 Telegram";
         public const string ColorSettings = "\u989c\u8272\u8bbe\u7f6e";
+        public const string BreathingLightEffect = "\u547c\u5438\u706f\u6548\u679c";
         public const string SoundSettings = "\u58f0\u97f3\u8bbe\u7f6e";
         public const string ClaudeHooks = "Claude Code";
         public const string ConfigureClaudeHooks = "\u542f\u7528\u72b6\u6001\u706f";
@@ -71,9 +76,17 @@ namespace WorkStatusLight
         public const string YellowWorking = "\u9ec4\u706f:\u5de5\u4f5c\u4e2d";
         public const string RedConfirm = "\u7ea2\u706f:\u9700\u786e\u8ba4";
         public const string GreenDone = "\u7eff\u706f:\u5df2\u5b8c\u6210";
+        public const string AboutSoftware = "\u5173\u4e8e\u8f6f\u4ef6";
+        public const string AboutSoftwareTitle = "\u5173\u4e8e\u8f6f\u4ef6";
+        public const string AboutSoftwareDescription = "\u7528\u4e8e\u663e\u793a Agent \u5f53\u524d\u662f\u5426\u5728\u5de5\u4f5c\u3001\u9700\u8981\u786e\u8ba4\u6216\u5df2\u5b8c\u6210\u3002";
+        public const string VersionLabel = "\u7248\u672c\u53f7";
+        public const string ProjectAddressLabel = "\u9879\u76ee\u5730\u5740";
+        public const string UpdateAvailableFormat = "\u53d1\u73b0\u65b0\u7248\u672c\uff1a{0}";
+        public const string UpdateAvailableTooltipFormat = "\u6709\u65b0\u7248\u672c\uff1a{0}";
         public const string Exit = "\u9000\u51fa";
         public const string Save = "\u4fdd\u5b58";
         public const string Cancel = "\u53d6\u6d88";
+        public const string Close = "\u5173\u95ed";
         public const string ChooseColor = "\u9009\u62e9\u989c\u8272";
         public const string ResetDefault = "\u6062\u590d\u9ed8\u8ba4";
         public const string NotificationSettingsTitle = "\u901a\u77e5\u8bbe\u7f6e";
@@ -93,6 +106,10 @@ namespace WorkStatusLight
         public const string TelegramBotTokenLabel = "Bot Token";
         public const string TelegramChatIdLabel = "Chat ID";
         public const string TelegramProxyLabel = "\u4ee3\u7406\u5730\u5740";
+        public const string WindowsNativeTestTitle = "AgentStatusLight";
+        public const string WindowsNativeTestBody = "Windows \u901a\u77e5\u6d4b\u8bd5";
+        public const string WindowsNativeTestSent = "Windows \u6d4b\u8bd5\u901a\u77e5\u5df2\u53d1\u9001\u3002";
+        public const string WindowsNativeSendFailed = "Windows \u901a\u77e5\u53d1\u9001\u5931\u8d25\uff0c\u8bf7\u68c0\u67e5 Windows \u901a\u77e5\u8bbe\u7f6e\u3002";
         public const string BarkInvalidConfig = "Bark \u914d\u7f6e\u65e0\u6548\uff0c\u8bf7\u586b\u5199\u8bbe\u5907 Key \u6216\u5b8c\u6574 Bark URL\u3002";
         public const string PushPlusInvalidConfig = "PushPlus \u914d\u7f6e\u65e0\u6548\uff0c\u8bf7\u586b\u5199\u6b63\u786e\u7684 Token\u3002";
         public const string TelegramInvalidConfig = "Telegram \u914d\u7f6e\u65e0\u6548\uff0c\u8bf7\u68c0\u67e5 Bot Token\u3001Chat ID \u548c\u4ee3\u7406\u5730\u5740\u3002";

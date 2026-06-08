@@ -11,27 +11,30 @@ namespace WorkStatusLight
         public const int RecentLineLimit = 2000;
         private const long MaxBytes = 1024L * 1024L;
         private const string MutexName = "AgentStatusLight.ClaudeEventsFile";
+        private const int MutexWaitMilliseconds = 300;
+        private const int AppendLockRetryCount = 3;
+        private const int AppendLockRetryDelayMilliseconds = 50;
 
         public static void AppendLine(string path, string line)
         {
             bool locked = false;
             using (var mutex = new Mutex(false, MutexName))
             {
-                locked = TryWait(mutex);
+                locked = TryWaitWithRetry(mutex);
+                if (!locked)
+                {
+                    Logger.Write("Claude event file append skipped: lock unavailable path=" + path);
+                    return;
+                }
+
                 try
                 {
                     AppendLineUnlocked(path, line);
-                    if (locked)
-                    {
-                        TrimIfNeededUnlocked(path);
-                    }
+                    TrimIfNeededUnlocked(path);
                 }
                 finally
                 {
-                    if (locked)
-                    {
-                        mutex.ReleaseMutex();
-                    }
+                    mutex.ReleaseMutex();
                 }
             }
         }
@@ -150,12 +153,27 @@ namespace WorkStatusLight
         {
             try
             {
-                return mutex.WaitOne(TimeSpan.FromMilliseconds(300));
+                return mutex.WaitOne(TimeSpan.FromMilliseconds(MutexWaitMilliseconds));
             }
             catch (AbandonedMutexException)
             {
                 return true;
             }
+        }
+
+        private static bool TryWaitWithRetry(Mutex mutex)
+        {
+            for (int attempt = 0; attempt < AppendLockRetryCount; attempt++)
+            {
+                if (TryWait(mutex))
+                {
+                    return true;
+                }
+
+                Thread.Sleep(AppendLockRetryDelayMilliseconds * (attempt + 1));
+            }
+
+            return false;
         }
     }
 }
