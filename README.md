@@ -95,3 +95,11 @@ AgentStatusLight 把这些状态放到桌面上，用红、黄、绿三盏灯直
 
 - [Claude Code 状态灯配置](docs/claude-hooks.md)
 - [开发和数据说明](docs/development.md)
+
+## 鸣谢
+
+感谢 [Linux.do](https://linux.do/) 提供交流支持。
+
+## 许可证
+
+本项目使用 MIT 许可证，详情见 [LICENSE](LICENSE)。

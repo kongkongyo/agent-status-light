@@ -95,3 +95,11 @@ Manual setup and event details are available in [Claude Code status light config
 
 - [Claude Code status light configuration](docs/claude-hooks.md)
 - [Development and data notes](docs/development.md)
+
+## Acknowledgements
+
+Thanks to [Linux.do](https://linux.do/) for community support.
+
+## License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
